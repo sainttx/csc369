@@ -102,7 +102,6 @@ static int add_pid_sysc(pid_t pid, int sysc)
 
 	INIT_LIST_HEAD(&ple->list);
 	ple->pid=pid;
-
 	list_add(&ple->list, &(table[sysc].my_list));
 	table[sysc].listcount++;
 
@@ -215,6 +214,7 @@ static int check_pids_same_owner(pid_t pid1, pid_t pid2) {
  */
 static int check_pid_monitored(int sysc, pid_t pid) {
 
+
 	struct list_head *i;
 	struct pid_list *ple;
 
@@ -306,6 +306,8 @@ asmlinkage int is_pid_valid(int pid) {
 /**
  * Returns 1 if the current user can change monitoring state of a pid, 0 otherwise.
  * This method assumes the pid is either 0 (indicating all pids) or is in fact valid.
+
+ * TODO: Verify logic
  */
 asmlinkage int can_control_monitor(int pid) {
     struct task_struct *pid_task_struct;
@@ -373,143 +375,192 @@ asmlinkage int can_control_monitor(int pid) {
  *   to the system call table and the lists of monitored pids. Be careful to unlock any spinlocks 
  *   you might be holding, before you exit the function (including error cases!).  
  */
-asmlinkage long my_syscall(int cmd, int syscall, int pid) {
-    mytable mt;
-    long (*orig_syscall)(void);
-    struct task_struct *pid_task_struct;
-    pid_t pid_c;
-    bool root; // Used to check if current call is being ran as root
-    printk(KERN_DEBUG "my_syscall\n");
 
-    root = current_uid() == 0; 
+asmlinkage long syscall_intercept(int syscall) {
+	long (*orig_syscall)(void);
+
+	printk(KERN_DEBUG "syscall_intercept %d\n", syscall);
+
+	// Require the current user issuing the request to be the root user
+	if (current_uid() != 0) {
+		return -EPERM;
+	}
+
+	// Acquire a lock since we are going to be messing with entries
+	// in the table array.
+	spin_lock(&my_table_lock);
+
+	// If the system call is already being intercepted (ie. is 1 or 2)
+	// we return an -EBUSY signal.
+	// TODO: Proper checking for intercepted == 1 and intercepted == 2 in other places
+    if (table[syscall].intercepted != 0) {
+        spin_unlock(&my_table_lock); // Unlock!
+        return -EBUSY;
+    }
+
+    // All good to go - we now set up the struct in the syscall index
+    // to indicate that it is being intercepted. 
+    // TODO: We shouldn't need listcount and monitored here.
+    INIT_LIST_HEAD(&table[syscall].my_list);
+    table[syscall].intercepted = 1;
+    table[syscall].monitored = 0;
+    table[syscall].listcount = 0;
+    
+    // Fetch the original system call and save it in the mytable struct
+    // in the array. We first acquire a lock on the sys_call_table in order
+    // to safely read the current value.
+    spin_lock(&sys_call_table_lock);
+    orig_syscall = (long (*) (void)) sys_call_table[syscall]; // TODO: Double cast?
+    table[syscall].f=(asmlinkage long (*) (struct pt_regs))orig_syscall;
+
+    // TODO: Replace the original system call with our interceptor method (set RW also)
+
+    // Release our locks to allow any other methods to interact with the table 
+    // and sys_call_table arrays.
+    spin_unlock(&sys_call_table_lock);
+    spin_unlock(&my_table_lock);
+    return 0;
+}
+
+asmlinkage long syscall_release(int syscall) {
+	printk(KERN_DEBUG "syscall_release\n");
+
+	// Require the current user issuing the request to be the root user
+	if (current_uid() != 0) {
+        return -EPERM;
+    }
+
+    // Acquire a lock since we are going to be messing with entries
+	// in the table array.
+    spin_lock(&my_table_lock);
+
+    // If the requested syscall isn't being monitored we return -EINVAL.
+    if (table[syscall].intercepted == 0) {
+        spin_unlock(&my_table_lock); // Unlock for safety!
+        return -EINVAL;
+    }
+
+    // Acquire a lock on the system call table to restore the original system call
+    // We must set RW before writing, and then RO to revert the operation.
+    spin_lock(&sys_call_table_lock);
+    set_addr_rw((unsigned long) &sys_call_table); 
+    sys_call_table[syscall] = table[syscall].f;
+    set_addr_ro((unsigned long) &sys_call_table);
+    spin_unlock(&sys_call_table_lock); // TODO: Should the lock be released here or right before my_table_lock
+
+    // Reset the struct to 'factory' settings, setting all the values as if there 
+    // was nothing there previously
+    table[syscall].intercepted = 0;
+    table[syscall].monitored = 0;
+    table[syscall].listcount = 0;
+    destroy_list(syscall); // Destroy all the values in the list
+    table[syscall].f = NULL;
+    spin_unlock(&my_table_lock);
+	return 0;
+}
+
+// TODO: Synchronization
+asmlinkage long start_monitoring(int syscall, int pid) {
+	struct task_struct *pid_task_struct; // Variable used to find valid pid data from int provided
+	pid_t valid_pid;
+
+	printk(KERN_DEBUG "start_monitoring pid:%d syscall:%d\n", pid, syscall);
+
+	// Check if the pid 
+    if (!is_pid_valid(pid)) {
+        printk("Invalid PID %d\n", pid);
+        return -EINVAL;
+    } 
+
+   	// Check if the current user can monitor the passed in pid
+    if (!can_control_monitor(pid)) {
+    	printk(KERN_DEBUG "Can't control monitor (-EPERM)\n");
+        return -EPERM;
+    } 
+
+    printk("Else 1\n");
+    pid_task_struct = pid_task(find_vpid(pid), PIDTYPE_PID);
+
+    printk("Else 1.1\n");
+
+    // Acquire a lock to handle information in the table array
+    spin_lock(&my_table_lock);
+
+    if (table[syscall].intercepted == 2) {
+    	spin_unlock(&my_table_lock);
+        return -EBUSY;
+    }
+
+   
+    // If already montoring: -EBUSY
+    if (pid == 0) {
+        printk("Else 2\n");
+         if (table[syscall].intercepted == 2) {
+            spin_unlock(&my_table_lock);
+            printk("Else 3\n");
+            return -EBUSY;
+        }
+
+        printk("Else 4\n");
+        spin_unlock(&my_table_lock);
+    } else {
+        printk("Else 1.2\n");
+        printk("test?\n");
+
+        if (pid_task_struct == NULL) {
+            printk("Why is pid_task_struct NULL\n");
+            spin_unlock(&my_table_lock);
+            return -EINVAL;
+        }
+
+        valid_pid = pid_task_struct->pid;
+        
+        printk("Else 1.3\n");
+
+        // TODO: Getting an error here because the list is not initialized, so dereferencing it breaks I believe
+        if (table[syscall].intercepted == 1 && check_pid_monitored(syscall, valid_pid)) { // Check if the PID is already monitored
+            spin_unlock(&my_table_lock);
+            printk("Else 5\n");
+            return -EBUSY;
+        } else {
+            printk("Else 6\n");
+            // Intercept the pid for the call
+            INIT_LIST_HEAD(&table[syscall].my_list);
+            printk("Else 6.1\n");
+
+            // TODO: Erroring out here for some reason
+            if (add_pid_sysc(valid_pid, syscall) == -ENOMEM) {
+                printk("Else 7\n");
+                spin_unlock(&my_table_lock);
+                return -ENOMEM;
+            }
+        
+            //printk(KERN_DEBUG "Now monitoring pid %d for sysc %d\n", pid, syscall);
+            spin_unlock(&my_table_lock);
+        }
+    }
+
+	return 0;
+}
+
+
+asmlinkage long my_syscall(int cmd, int syscall, int pid) {
+    printk(KERN_DEBUG "my_syscall\n");
 
     // Don't allow invalid syscall to be tracked, also cannot be our custom syscall
     if (syscall < 0 || syscall > NR_syscalls-1 || syscall == MY_CUSTOM_SYSCALL) {
         return -EINVAL;
-    } 
+    }
 
-    mt = table[syscall]; // TODO: Synchronized access
-
-    if (cmd == REQUEST_SYSCALL_INTERCEPT) {
-        if (!root) {
-            return -EPERM;
-        }
-        
-        // Check if the syscall is already being intercepted, return -EBUSY if it is.
-        spin_lock(&my_table_lock);
-        if (mt.intercepted == 1) {
-            spin_unlock(&my_table_lock);
-            return -EBUSY;
-        }
-
-        // Set up the struct for a newly intercepted call
-        INIT_LIST_HEAD(&mt.my_list);
-        mt.intercepted = 1;
-        mt.monitored = 0;
-        mt.listcount = 0;
-        
-        // Get the original system call and save it in the struct
-        spin_lock(&sys_call_table_lock);
-        orig_syscall = (long (*) (void)) sys_call_table[syscall];
-        mt.f=(asmlinkage long (*) (struct pt_regs))orig_syscall;
-
-        // TODO: Replace the original system call with our interceptor method (set RW also)
-
-        spin_unlock(&sys_call_table_lock);
-        spin_unlock(&my_table_lock);
+    // Find out which command has been requested and process with the proper arguments
+    // TODO: Return value if there is an invalid CMD? -EINVAL?
+    // TODO: Array with functions?
+    if (cmd == REQUEST_SYSCALL_INTERCEPT) { 
+    	return syscall_intercept(syscall);
     } else if (cmd == REQUEST_SYSCALL_RELEASE) {
-        if (!root) {
-            return -EPERM;
-        }
-
-        // Check if the requested system call is already being monitored.. -EINVAL if it isn't.
-        spin_lock(&my_table_lock);
-        if (mt.intercepted == 0) {
-            spin_unlock(&my_table_lock);
-            return -EINVAL;
-        }
-
-        // Restore the original syscall - we set sys_call_table RW and then RO
-        set_addr_rw((unsigned long) &sys_call_table); 
-        sys_call_table[syscall] = mt.f;
-        set_addr_ro((unsigned long) &sys_call_table);
-
-        // Reset the mt struct values
-        mt.intercepted = 0;
-        mt.monitored = 0;
-        mt.listcount = 0;
-        destroy_list(syscall);        
-        mt.f = NULL;
-        spin_unlock(&my_table_lock);
+    	return syscall_release(syscall);
     } else if (cmd == REQUEST_START_MONITORING) {
-        printk("Start monitoring pid:%d syscall:%d\n", pid, syscall);
-        if (!is_pid_valid(pid)) {
-            printk("Invalid PID %d\n", pid);
-            return -EINVAL;
-        } else if (!can_control_monitor(pid)) {
-            return -EPERM;
-        } else {
-            printk("Else 1\n");
-            pid_task_struct = pid_task(find_vpid(pid), PIDTYPE_PID);
-
-            printk("Else 1.1\n");
-
-            if (mt.intercepted == 2) {
-                return -EBUSY;
-            }
-
-            spin_lock(&my_table_lock);
-           
-            // If already montoring: -EBUSY
-            if (pid == 0) {
-                printk("Else 2\n");
-                /* if (mt.intercepted == 2) {
-                    spin_unlock(&my_table_lock);
-                    printk("Else 3\n");
-                    return -EBUSY;
-                } */
-
-                printk("Else 4\n");
-                spin_unlock(&my_table_lock);
-            } else {
-                printk("Else 1.2\n");
-                printk("test?\n");
-
-                if (pid_task_struct == NULL) {
-                    printk("Why is pid_task_struct NULL\n");
-                    spin_unlock(&my_table_lock);
-                    return -EINVAL;
-                }
-
-                pid_c = pid_task_struct->pid;
-                
-                printk("Else 1.3\n");
-
-                // TODO: Getting an error here because the list is not initialized, so dereferencing it breaks I believe
-                if (mt.intercepted == 1 && check_pid_monitored(syscall, pid_c)) { // Check if the PID is already monitored
-                    spin_unlock(&my_table_lock);
-                    printk("Else 5\n");
-                    return -EBUSY;
-                } else {
-                    printk("Else 6\n");
-                    // Intercept the pid for the call
-
-                    // TODO: Initialize the list structures etc for adding pids
-                    INIT_LIST_HEAD(&mt.my_list);
-                    printk("Else 6.1\n");
-
-                    // TODO: Erroring out here for some reason
-                    if (add_pid_sysc(pid_c, syscall) == -ENOMEM) {
-                        printk("Else 7\n");
-                        spin_unlock(&my_table_lock);
-                        return -ENOMEM;
-                    }
-                
-                    printk(KERN_DEBUG "Now monitoring pid %d for sysc %d\n", pid, syscall);
-                    spin_unlock(&my_table_lock);
-                }
-            }
-        }
+        return start_monitoring(syscall, pid);
     } else if (cmd == REQUEST_STOP_MONITORING) {
         if (!is_pid_valid(pid)) {
             return -EINVAL;
@@ -553,6 +604,7 @@ static int init_function(void) {
     printk(KERN_DEBUG "init_function\n");
 
     // Initialize table values to NULL
+    // TODO: Needed? Test
 //    spin_lock(&my_table_lock);
 //    memset(table, 0, sizeof(mytable));
 //    spin_unlock(&my_table_lock);
