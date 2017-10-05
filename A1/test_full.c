@@ -104,26 +104,37 @@ int do_monitor(int sysno) {
 
 
 int do_intercept(int syscall, int status) {
+    //printf("do_intercept(%d %d)\n", syscall, status);
 	test("%d intercept", syscall, vsyscall_arg(MY_CUSTOM_SYSCALL, 3, REQUEST_SYSCALL_INTERCEPT, syscall, getpid()) == status);
 	return 0;
 }
 
 
 int do_release(int syscall, int status) {
+    //printf("do_release(%d %d)\n", syscall, status);
 	test("%d release", syscall, vsyscall_arg(MY_CUSTOM_SYSCALL, 3, REQUEST_SYSCALL_RELEASE, syscall, getpid()) == status);
 	return 0;
 }
 
-
 int do_start(int syscall, int pid, int status) {
-	if (pid == -1)
+    int returned;
+    //printf("do_start(%d %d %d)\n", syscall, pid, status);
+	if (pid == -1) {
 		pid=getpid();
-	test("%d start", syscall, vsyscall_arg(MY_CUSTOM_SYSCALL, 3, REQUEST_START_MONITORING, syscall, pid) == status);
+        //printf(" - pid fixed to %d\n", pid);
+    }
+    returned = vsyscall_arg(MY_CUSTOM_SYSCALL, 3, REQUEST_START_MONITORING, syscall, pid);
+    //printf("  returned %d expected %d\n", returned, status);
+	test("%d start", syscall, returned == status);
 	return 0;
 }
 
 int do_stop(int syscall, int pid, int status) {
-	test("%d stop", syscall, vsyscall_arg(MY_CUSTOM_SYSCALL, 3, REQUEST_STOP_MONITORING, syscall, pid) == status);
+    int returned;
+    //printf("do_stop(%d %d %d)\n", syscall, pid, status);
+    returned = vsyscall_arg(MY_CUSTOM_SYSCALL, 3, REQUEST_STOP_MONITORING, syscall, pid);
+    //printf("  returned %d expected %d\n", returned, status);
+	test("%d stop", syscall, returned == status);
 	return 0;
 }
 
