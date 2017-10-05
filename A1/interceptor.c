@@ -280,12 +280,22 @@ void my_exit_group(int status)
  *
  */
 asmlinkage long interceptor(struct pt_regs reg) {
+    long ret; // Value returned by original function
+    pid_t pid; // Current pid
+    int syscall;
+    syscall = reg.ax;
+    pid = current->pid;
+    
+    spin_lock(&my_table_lock);
+    if (check_pid_monitored(syscall, pid)) {
+        log_message(pid, reg.ax, reg.bx, reg.cx, reg.dx, reg.si, reg.di, reg.bp);
+    }
 
-    printk(KERN_DEBUG "interceptor\n");
+    // Call the original function to resume proper functionality
+    ret = table[syscall].f(reg);
+    spin_unlock(&my_table_lock);
 
-
-
-	return 0; // Just a placeholder, so it compiles with no warnings!
+	return ret; // Just a placeholder, so it compiles with no warnings!
 }
 
 /**
@@ -404,17 +414,24 @@ asmlinkage long syscall_intercept(int syscall) {
     table[syscall].intercepted = 1;
 
     // TODO: We shouldn't need listcount and monitored here.
-//    table[syscall].monitored = 0;
-//    table[syscall].listcount = 0;
+    //    table[syscall].monitored = 0;
+    //    table[syscall].listcount = 0;
     
     // Fetch the original system call and save it in the mytable struct
     // in the array. We first acquire a lock on the sys_call_table in order
     // to safely read the current value.
     spin_lock(&sys_call_table_lock);
     orig_syscall = (long (*) (void)) sys_call_table[syscall]; // TODO: Double cast?
+    printk(KERN_DEBUG "orig_syscall %p\n", orig_syscall);
     table[syscall].f=(asmlinkage long (*) (struct pt_regs))orig_syscall;
 
     // TODO: Replace the original system call with our interceptor method (set RW also)
+//     asmlinkage long interceptor(struct pt_regs reg)
+    set_addr_rw((unsigned long) &sys_call_table); 
+    sys_call_table[syscall] = interceptor;
+    printk(KERN_DEBUG "syscall %d is now intercepted\n", syscall);
+//    sys_call_table[syscall] = table[syscall].f;
+    set_addr_ro((unsigned long) &sys_call_table);
 
     // Release our locks to allow any other methods to interact with the table 
     // and sys_call_table arrays.
@@ -446,6 +463,7 @@ asmlinkage long syscall_release(int syscall) {
     spin_lock(&sys_call_table_lock);
     set_addr_rw((unsigned long) &sys_call_table); 
     sys_call_table[syscall] = table[syscall].f;
+    printk(KERN_DEBUG "syscall %d is no longer intercepted\n", syscall);
     set_addr_ro((unsigned long) &sys_call_table);
     spin_unlock(&sys_call_table_lock); // TODO: Should the lock be released here or right before my_table_lock
 
@@ -641,13 +659,7 @@ static int init_function(void) {
     my_syscall_ptr = my_syscall;
     my_exit_group_ptr = my_exit_group;
 
-    printk(KERN_DEBUG "init_function\n");
-
-    // Initialize table values to NULL
-    // TODO: Needed? Test
-//    spin_lock(&my_table_lock);
-//    memset(table, 0, sizeof(mytable));
-//    spin_unlock(&my_table_lock);
+    printk(KERN_DEBUG "init_function (%d)\n", current->pid);
 
     spin_lock(&sys_call_table_lock);
     orig_custom_syscall = (long (*) (void)) sys_call_table[MY_CUSTOM_SYSCALL];    
