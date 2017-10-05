@@ -400,11 +400,12 @@ asmlinkage long syscall_intercept(int syscall) {
 
     // All good to go - we now set up the struct in the syscall index
     // to indicate that it is being intercepted. 
-    // TODO: We shouldn't need listcount and monitored here.
     INIT_LIST_HEAD(&table[syscall].my_list);
     table[syscall].intercepted = 1;
-    table[syscall].monitored = 0;
-    table[syscall].listcount = 0;
+
+    // TODO: We shouldn't need listcount and monitored here.
+//    table[syscall].monitored = 0;
+//    table[syscall].listcount = 0;
     
     // Fetch the original system call and save it in the mytable struct
     // in the array. We first acquire a lock on the sys_call_table in order
@@ -453,7 +454,7 @@ asmlinkage long syscall_release(int syscall) {
     table[syscall].intercepted = 0;
     table[syscall].monitored = 0;
     table[syscall].listcount = 0;
-    destroy_list(syscall); // Destroy all the values in the list
+    destroy_list(syscall); // Destroy all the values in the list TODO: Might need to kfree here
     table[syscall].f = NULL;
     spin_unlock(&my_table_lock);
 	return 0;
@@ -464,7 +465,6 @@ asmlinkage long syscall_release(int syscall) {
 // 0 = all processes added (or setting .intercepted to 2
 // 
 asmlinkage long start_monitoring(int syscall, int pid) {
-	struct task_struct *pid_task_struct; // Variable used to find valid pid data from int provided
 	pid_t valid_pid;
 
 	printk(KERN_DEBUG "start_monitoring pid:%d syscall:%d\n", pid, syscall);
@@ -481,19 +481,13 @@ asmlinkage long start_monitoring(int syscall, int pid) {
         return -EPERM;
     }
 
-    printk("Else 1\n");
-    // Find the task related to the passed in pid
-    pid_task_struct = pid_task(find_vpid(pid), PIDTYPE_PID);
-
-    printk("Else 1.1\n");
-
     // Acquire a lock to handle information in the table array
     spin_lock(&my_table_lock);
 
     // Check if all processes are already monitored: ret -EBUSY if true
     if (table[syscall].intercepted == 2) {
     	spin_unlock(&my_table_lock);
-        return -EBUSY;
+        return -EBUSY; // TODO: Not being cleared?
     }
 
     // If the system call is not being monitored: return -EINVAL
@@ -506,16 +500,12 @@ asmlinkage long start_monitoring(int syscall, int pid) {
     // Check if we are attempting to monitor all processes, otherwise handle
     // for a single pid
     if (pid == 0) {
-        printk("Else 2\n");
         // Set the state of the system call to 2 (all intercepted), we destroy the 
         // list of the system call to remove all of the currently stored pids as the
         // only way to reverse this is by stopping to monitor all pids.
         table[syscall].intercepted = 2; // TODO: This flag breaks one of the test cases in test_full
-        destroy_list(syscall);
+        destroy_list(syscall); // TODO: Might need to kfree
     } else {
-        printk("Else 1.2\n");
-        printk("test?\n");
-
         /*
         TODO: This should already be handled by is_pid_valid
         if (pid_task_struct == NULL) {
@@ -524,27 +514,23 @@ asmlinkage long start_monitoring(int syscall, int pid) {
             return -EINVAL;
         } */
 
-        valid_pid = pid_task_struct->pid;
+        valid_pid = pid_task(find_vpid(pid), PIDTYPE_PID)->pid;
         
-        printk("Else 1.3\n");
         // If the passed in pid is already being monitored for the system call we
         // return -EBUSY
         if (check_pid_monitored(syscall, valid_pid)) { // Check if the PID is already monitored
             spin_unlock(&my_table_lock);
-            printk("Else 5\n");
             return -EBUSY;
-        } 
+        }
 
-        printk("Else 6\n");
+        
         // Add the pid to the list held for the system call. If add_pid_sysc errors
         // out due to no memory, this function returns the error value.
         if (add_pid_sysc(valid_pid, syscall) == -ENOMEM) {
-            printk("Else 7\n");
             spin_unlock(&my_table_lock);
             return -ENOMEM;
         }
 
-        printk("Else 6.1\n");
         printk(KERN_DEBUG "Now monitoring pid %d for sysc %d\n", pid, syscall);
     }
 
@@ -553,15 +539,52 @@ asmlinkage long start_monitoring(int syscall, int pid) {
 }
 
 asmlinkage long stop_monitoring(int syscall, int pid) {
+    pid_t valid_pid;
+
+    // Check if the pid is a valid pid that we can begin monitoring
     if (!is_pid_valid(pid)) {
         return -EINVAL;
-    } else if (!can_control_monitor(pid)) {
+    } 
+    
+    // Check if the current user can monitor the passed in pid
+    if (!can_control_monitor(pid)) {
         return -EPERM;
-    } else {
-        // We are able to control the monitor... proceed
-        // TODO: If all monitored then -EINVAL or bonus
-    }    
+    }
 
+    spin_lock(&my_table_lock);
+        
+    // TODO: Bonus can be implemented here (if all are monitored- blacklist)
+
+    // Check if the system call is even being intercepted: return -EINVAL if not
+    if (table[syscall].intercepted == 0) {
+        spin_unlock(&my_table_lock);
+        return -EINVAL;
+    }
+    
+    // If the pid is 0 then we must clear the list of monitored pids
+    // TODO: Does this set intercepted to 0?
+    if (pid == 0) {
+        // TODO: Logic
+        table[syscall].intercepted = 1; // Set it to only intercept single pids
+        destroy_list(syscall); // TODO: Is head being destroyed? don't think it is
+    } else { // Targetting a specific pid to stop monitoring
+        valid_pid = pid_task(find_vpid(pid), PIDTYPE_PID)->pid; // Parse the valid pid
+        // If the pid is not being monitored we must return -EINVAL
+        if (!check_pid_monitored(syscall, valid_pid)) { 
+            printk(KERN_DEBUG "pid %d is not being monitored for sysc %d\n", pid, syscall);
+            spin_unlock(&my_table_lock);
+            return -EINVAL;
+        }
+
+        if (del_pid_sysc(valid_pid, syscall) == -EINVAL) {
+            printk(KERN_DEBUG "pid %d was not being monitored for sysc %d????\n", pid, syscall);
+            return -EINVAL;        
+        } else {
+            printk(KERN_DEBUG "no longer monitoring pid %d on sysc %d\n", pid, syscall);        
+        }
+    }
+ 
+    spin_unlock(&my_table_lock);
     return 0;
 }
 
@@ -585,11 +608,10 @@ asmlinkage long my_syscall(int cmd, int syscall, int pid) {
         return start_monitoring(syscall, pid);
     } else if (cmd == REQUEST_STOP_MONITORING) {
          return stop_monitoring(syscall, pid);
+    } else {
+        // An invalid command was provided so we return -EINVAL
+        return -EINVAL;
     }
-
-// TODO: -EINVAL if invalid cmd
-
-	return 0;
 }
 
 /**
