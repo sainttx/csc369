@@ -83,7 +83,7 @@ int find_log(long pid, long sno, long *args, long ret) {
 /** 
  * Check if a syscall gets logged properly when it's been already intercepted
  */
-int do_monitor(int sysno) {
+int do_monitor(int sysno, int status) {
 	int sno, ret, i;
 	long args[6];
 	
@@ -98,7 +98,7 @@ int do_monitor(int sysno) {
 	//printf("[%x]%lx(%lx,%lx,%lx,%lx,%lx,%lx)\n", getpid(), (long)sysno, 
 	//	args[0], args[1], args[2], args[3], args[4], args[5]);
 
-	test("%d nonroot monitor", sysno, find_log(getpid(), (long)sno, args, (long)ret) == 0);
+	test("%d nonroot monitor", sysno, find_log(getpid(), (long)sno, args, (long)ret) == status);
 	return 0;
 }
 
@@ -170,7 +170,7 @@ int do_nonroot(int syscall) {
 	do_stop(syscall, 1, -EPERM);
 	do_start(syscall, getpid(), 0);
 	do_start(syscall, getpid(), -EBUSY);
-	do_monitor(syscall);
+	do_monitor(syscall, 0);
 	do_stop(syscall, getpid(), 0);
 	do_stop(syscall, getpid(), -EINVAL);
 	return 0;
@@ -196,6 +196,7 @@ void test_syscall(int syscall) {
 
 
 int main(int argc, char **argv) {
+	int i;
 
 	srand(time(NULL));
 
@@ -212,11 +213,12 @@ int main(int argc, char **argv) {
 		return do_stop(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
 
 	if (argc>1 && strcmp(argv[1], "monitor") == 0)
-		return do_monitor(atoi(argv[2]));
+		return do_monitor(atoi(argv[2]), 0);
 
 	if (argc>1 && strcmp(argv[1], "nonroot") == 0)
 		return do_nonroot(atoi(argv[2]));
 
+	printf("Running tests (pid=%d)\n", getpid());
 	test("insmod interceptor.ko %s", "", system("insmod interceptor.ko") == 0);
 	test("bad MY_SYSCALL args%s", "",  vsyscall_arg(MY_CUSTOM_SYSCALL, 3, 100, 0, 0) == -EINVAL);
 	do_intercept(MY_CUSTOM_SYSCALL, -EINVAL);
@@ -226,7 +228,24 @@ int main(int argc, char **argv) {
 	do_intercept(__NR_exit, 0);
 	do_release(__NR_exit, 0);
 
+	printf("SYS_open:\n");
 	test_syscall(SYS_open);
+	printf("SYS_time:\n");
+	test_syscall(SYS_time);
+
+	printf("Own test cases:\n");
+
+	/* for (i = 0 ; i < 10 ; i++) {
+		do_intercept(SYS_open, 0);
+		do_release(SYS_open, 0);
+	} */
+
+	do_intercept(SYS_time, 0);
+	do_monitor(SYS_time, -1);
+	do_start(SYS_time, getpid(), 0);
+	do_monitor(SYS_time, 0);
+
+
 	/* The above line of code tests SYS_open.
 	   Feel free to add more tests here for other system calls, 
 	   once you get everything to work; check Linux documentation
