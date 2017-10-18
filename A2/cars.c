@@ -85,27 +85,24 @@ void init_intersection() {
     struct intersection* intersect;
     struct lane* lane;
 
-    intersect = malloc(sizeof(struct intersection));
+    intersect = &isection;
 
-    if (!intersect) {
-        // TODO:
-    }
     // Initialize all quadrant mutexes and lanes
     for (i = 0 ; i < 4 ; i++) {
+        // Initialize the quadrant mutex
         pthread_mutex_init(&intersect->quad[i], NULL);
-        lane = malloc(sizeof(struct lane));
-        if (!lane) {
-            // TODO:
-        }
+
+        // Initialize the lane
+        lane = &intersect->lanes[i];
+        pthread_mutex_init(&lane->lock, NULL);
+        pthread_cond_init(&lane->producer_cv, NULL);
+        pthread_cond_init(&lane->consumer_cv, NULL);
+        
         lane->capacity = LANE_LENGTH;
-        printf("lane->capacity=%d *lane.capacity=%d\n", lane->capacity, (*lane).capacity);
-        lane->buffer=malloc(sizeof(struct car**) * LANE_LENGTH);
-        intersect->lanes[i] = *lane;
+        //printf("lane->capacity=%d *lane.capacity=%d\n", lane->capacity, (*lane).capacity);
+        lane->buffer=malloc(sizeof(struct car**) * LANE_LENGTH); // TODO: struct car** or just struct car?
+        
     }
-
-    isection = *intersect;
-
-    printf("init_intersection complete\n");
 }
 
 /**
@@ -120,35 +117,44 @@ void *car_arrive(void *arg) {
     struct lane *l = arg;
     struct car *next_car;
 
+    uint64_t tid;
+    pthread_threadid_np(NULL, &tid);
+
+
     /* avoid compiler warning */
-    l = l;
+    //l = l;
+
+    printf("car_arrive %llu\n", tid);
 
     // TODO: Synchronization - producer thread
     pthread_mutex_lock(&l->lock);
-    printf("in_buf=%d capacity=%d\n", l->in_buf, l->capacity);
+
+    /*if (l->in_cars == NULL){
+        printf("car_arrive2\n");
+        pthread_mutex_unlock(&l->lock);
+        return NULL;
+    }*/
+
     while(l->in_buf == l->capacity) {
-        printf("Waiting car_arrive\n");
+        printf("car_arrive waiting %llu\n", tid);
         pthread_cond_wait(&l->producer_cv, &l->lock);
     }
 
-    printf("hello1=%d\n", l->in_buf);
-    //if (l->in_cars == NULL) {
-    //    return NULL; // TODO: What to do if this is the case?
-    //}
+    if (l->in_cars == NULL) {
+        pthread_mutex_unlock(&l->lock);
+        return NULL; // TODO: What to do if this is the case?
+    }
 
     // TODO: LIFO?
     // Remove the car from in_cars
 
+
     next_car = l->in_cars;
-    if (next_car==NULL){
-        pthread_mutex_unlock(&l->lock);
-        return NULL;
-        //        printf("next_car is null\n");
-    }
+    
     l->in_cars = next_car->next; // TODO: NULL checking
     next_car-> next = NULL;
 
-    printf("hello2\n");
+
     l->buffer[l->tail] = next_car;
     l->tail++;
     if (l->tail == l->capacity) {
@@ -156,8 +162,6 @@ void *car_arrive(void *arg) {
     }
     l->in_buf++;
     l->inc--;
-
-    printf("car_arrive done\n");
 
 
     // move from in_cars to buffer
@@ -167,7 +171,9 @@ void *car_arrive(void *arg) {
 
     pthread_cond_signal(&l->consumer_cv);
     pthread_mutex_unlock(&l->lock);
-    printf("Car arrive\n");
+
+    printf("car_arrive done %llu\n", tid);
+    //printf("Completed car_arrive %d\n", )
 
     return NULL;
 }
@@ -200,18 +206,16 @@ void *car_cross(void *arg) {
     struct lane out_lane;
     int *path;
     int path_loop;
-
-    /* avoid compiler warning */
-    l = l;
+    uint64_t tid;
+    pthread_threadid_np(NULL, &tid);
 
     // TODO: Consumer
     pthread_mutex_lock(&l->lock);
     while(l->in_buf == 0) {
-        printf("Waiting car_cross\n");
+        printf("car_cross waiting %llu\n", tid);
         pthread_cond_wait(&l->consumer_cv, &l->lock);
     }
 
-    printf("hello\n");
     // Get a car out of the buffer
     crossing = l->buffer[l->head];
     l->buffer[l->head] = NULL;
@@ -227,7 +231,6 @@ void *car_cross(void *arg) {
     // Go through the intersection
     path = compute_path(crossing->in_dir, crossing->out_dir);
 
-    printf("car_cross\n");
 
     for (path_loop = 0 ; path_loop < 3 ; path_loop++) {
         printf("%d ", path[path_loop]);
@@ -239,8 +242,7 @@ void *car_cross(void *arg) {
     pthread_cond_signal(&l->producer_cv);
     pthread_mutex_unlock(&l->lock);
 
-
-    printf("Car cross\n");
+    printf("car_cross done %llu\n", tid);
 
     return NULL;
 }
