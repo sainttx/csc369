@@ -6,33 +6,31 @@
 
 extern struct intersection isection;
 
-/* [in_dir][out_dir][path] */
-// TODO: U-turns must lock all quadrants
-// TODO: Should be safe to convert direction enum to int
-static int travel_paths[4][4][3] = {
-    { // East
-        {-1, -1, -1}, // East -> East
-        {1, -1, -1}, // East -> North
-        {1, 2, -1}, // East -> West
-        {1, 2, 3} // East -> South
-    },
+/* [in_dir][out_dir] : path */
+static int travel_paths[4][4][4] = {
     { // North
-        {2, 3, 4}, // North -> East
-        {-1, -1, -1}, // North -> North
-        {2, -1, -1}, // North -> West
-        {2, 3, -1} // North -> South
+        {1, 2, 3, 4}, // North -> North
+        {2, -1, -1, -1}, // North -> West
+        {2, 3, -1, -1}, // North -> South
+        {2, 3, 4, -1} // North -> East
     },
     { // West
-        {3, 4, -1}, // West -> East
-        {1, 3, 4}, // West-> North
-        {-1, -1, -1}, // West -> West
-        {3, -1, -1} // West -> South
+        {1, 3, 4, -1}, // West-> North
+        {1, 2, 3, 4}, // West -> West
+        {3, -1, -1, -1}, // West -> South
+        {3, 4, -1, -1} // West -> East
     },
     { // South
-        {4, -1, -1}, // South -> East
-        {1, 4, -1}, // South -> North
-        {1, 2, 4}, // South -> West
-        {-1, -1, -1} // South -> South
+        {1, 4, -1, -1}, // South -> North
+        {1, 2, 4, -1}, // South -> West
+        {1, 2, 3, 4}, // South -> South
+        {4, -1, -1} // South -> East
+    },
+    { // East
+        {1, -1, -1, -1}, // East -> North
+        {1, 2, -1, -1}, // East -> West
+        {1, 2, 3, -1}, // East -> South
+        {1, 2, 3, 4} // East -> East
     },
 };
 
@@ -97,11 +95,8 @@ void init_intersection() {
         pthread_mutex_init(&lane->lock, NULL);
         pthread_cond_init(&lane->producer_cv, NULL);
         pthread_cond_init(&lane->consumer_cv, NULL);
-        
         lane->capacity = LANE_LENGTH;
-        //printf("lane->capacity=%d *lane.capacity=%d\n", lane->capacity, (*lane).capacity);
-        lane->buffer=malloc(sizeof(struct car**) * LANE_LENGTH); // TODO: struct car** or just struct car?
-        
+        lane->buffer=malloc(sizeof(struct car**) * LANE_LENGTH);
     }
 }
 
@@ -117,64 +112,32 @@ void *car_arrive(void *arg) {
     struct lane *l = arg;
     struct car *next_car;
 
-    uint64_t tid;
-    pthread_threadid_np(NULL, &tid);
-
-
-    /* avoid compiler warning */
-    //l = l;
-
-    printf("car_arrive %llu\n", tid);
-
-    // TODO: Synchronization - producer thread
     pthread_mutex_lock(&l->lock);
 
-    /*if (l->in_cars == NULL){
-        printf("car_arrive2\n");
-        pthread_mutex_unlock(&l->lock);
-        return NULL;
-    }*/
-
+    // Implement mesa monitor, if the buffer is full we must wait
     while(l->in_buf == l->capacity) {
-        printf("car_arrive waiting %llu\n", tid);
         pthread_cond_wait(&l->producer_cv, &l->lock);
     }
 
-    if (l->in_cars == NULL) {
+    // We return if there are no more cars that are passing
+    // through the lane
+    if (l->inc == 0) {
         pthread_mutex_unlock(&l->lock);
-        return NULL; // TODO: What to do if this is the case?
+        return NULL;
     }
 
-    // TODO: LIFO?
-    // Remove the car from in_cars
-
-
     next_car = l->in_cars;
-    
-    l->in_cars = next_car->next; // TODO: NULL checking
+    l->in_cars = next_car->next;
     next_car-> next = NULL;
-
 
     l->buffer[l->tail] = next_car;
     l->tail++;
-    if (l->tail == l->capacity) {
-        l->tail = 0;
-    }
+    l->tail = l->tail % l->capacity; // Round robin
     l->in_buf++;
     l->inc--;
 
-
-    // move from in_cars to buffer
-    // in_buf++
-    // update tail of buffer
-    // inc--
-
     pthread_cond_signal(&l->consumer_cv);
     pthread_mutex_unlock(&l->lock);
-
-    printf("car_arrive done %llu\n", tid);
-    //printf("Completed car_arrive %d\n", )
-
     return NULL;
 }
 
@@ -203,60 +166,68 @@ void *car_arrive(void *arg) {
 void *car_cross(void *arg) {
     struct lane *l = arg;
     struct car *crossing;
-    struct lane out_lane;
+    struct lane *out_lane;
     int *path;
-    int path_loop;
-    uint64_t tid;
-    pthread_threadid_np(NULL, &tid);
+    int i;
 
     // TODO: Consumer
     pthread_mutex_lock(&l->lock);
     while(l->in_buf == 0) {
-        printf("car_cross waiting %llu\n", tid);
+        // If no other cars are waiting to arrive in the queue
+        // we exit to prevent deadlock
+        if (l->inc == 0) {
+            pthread_mutex_unlock(&l->lock);
+            return NULL;
+        }
         pthread_cond_wait(&l->consumer_cv, &l->lock);
     }
 
-    // Get a car out of the buffer
+    // Get the car that's going to be crossing
     crossing = l->buffer[l->head];
     l->buffer[l->head] = NULL;
     l->head++;
-    if (l->head == l->capacity) {
-        l->head = 0;
-    }
-    l->in_buf--;
+    l->head = l->head % l->capacity; // Round robin
 
-    // Move car into the new lane - TODO: Should lock in different section?
-    out_lane = isection.lanes[crossing->out_dir];
-
-    // Go through the intersection
+    // Move the car through the intersection and into the new lane
+    out_lane = &isection.lanes[crossing->out_dir];
     path = compute_path(crossing->in_dir, crossing->out_dir);
 
-
-    for (path_loop = 0 ; path_loop < 3 ; path_loop++) {
-        printf("%d ", path[path_loop]);
+    for (i = 0 ; i < 4 ; i++) {
+        if (path[i]!=-1) {
+            pthread_mutex_lock(&isection.quad[path[i]-1]);
+        }
     }
-    printf("\n");
 
-        // TODO: Passed? Piazza
+    // Acquire the out lane lock only if it is a different lane,
+    // since we already have a lock acquired on the current
+    // lane.
+    if (out_lane != l) {
+        pthread_mutex_lock(&out_lane->lock);
+    }
+
+    crossing->next = out_lane->out_cars;
+    out_lane->out_cars = crossing;
+    out_lane->passed++;
+    printf("%d %d %d\n", crossing->in_dir, crossing->out_dir, crossing->id);
+
+    // Release all locks
+    if (out_lane != l) {
+        pthread_mutex_unlock(&out_lane->lock);
+    }
+
+    for (i = 0 ; i < 4 ; i++) {
+        if (path[i]!=-1) {
+            pthread_mutex_unlock(&isection.quad[path[i]-1]);
+        }
+    }
+
+    // Update the current lane
+    l->in_buf--;
 
     pthread_cond_signal(&l->producer_cv);
     pthread_mutex_unlock(&l->lock);
 
-    printf("car_cross done %llu\n", tid);
-
     return NULL;
-}
-
-/* Converts a direction enum to index valid for the travel_paths array */
-int direction_to_index(enum direction dir) {
-    switch (dir) {
-    case EAST: return 0;
-    case NORTH: return 1;
-    case WEST: return 2;
-    case SOUTH: return 3;
-    default:
-        return -1;
-    }
 }
 
 /**
@@ -267,11 +238,5 @@ int direction_to_index(enum direction dir) {
  * 
  */
 int *compute_path(enum direction in_dir, enum direction out_dir) {
-    int in_dir_index;
-    int out_dir_index;
-
-    in_dir_index = direction_to_index(in_dir);
-    out_dir_index = direction_to_index(out_dir);
-
-    return travel_paths[in_dir_index][out_dir_index];
+    return travel_paths[in_dir][out_dir];
 }
