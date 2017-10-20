@@ -24,7 +24,7 @@ static int travel_paths[4][4][4] = {
         {1, 4, -1, -1}, // South -> North
         {1, 2, 4, -1}, // South -> West
         {1, 2, 3, 4}, // South -> South
-        {4, -1, -1} // South -> East
+        {4, -1, -1, -1} // South -> East
     },
     { // East
         {1, -1, -1, -1}, // East -> North
@@ -125,20 +125,16 @@ void *car_arrive(void *arg) {
             pthread_cond_wait(&l->producer_cv, &l->lock);
         }
 
-        // We return if there are no more cars that are passing
-        // through the lane
-        if (l->inc == 0) {
-            pthread_mutex_unlock(&l->lock);
-            return NULL;
-        }
-
+        // Remove the car from the lanes in_cars list
         next_car = l->in_cars;
         l->in_cars = next_car->next;
         next_car-> next = NULL;
 
+        // Append the car to the buffer, incrementing the tail
+        // and decrementing the number of cars passing through.
         l->buffer[l->tail] = next_car;
         l->tail++;
-        l->tail = l->tail % l->capacity; // Round robin
+        l->tail = l->tail % l->capacity;
         l->in_buf++;
         l->inc--;
 
@@ -180,12 +176,6 @@ void *car_cross(void *arg) {
     while (l->in_cars != NULL || l->in_buf > 0) {
         pthread_mutex_lock(&l->lock);
         while(l->in_buf == 0) {
-            // If no other cars are waiting to arrive in the queue
-            // we exit to prevent deadlock
-            /*if (l->inc == 0) {
-                pthread_mutex_unlock(&l->lock);
-                return NULL;
-            }*/
             pthread_cond_wait(&l->consumer_cv, &l->lock);
         }
 
@@ -193,7 +183,7 @@ void *car_cross(void *arg) {
         crossing = l->buffer[l->head];
         l->buffer[l->head] = NULL;
         l->head++;
-        l->head = l->head % l->capacity; // Round robin
+        l->head = l->head % l->capacity;
 
         // Move the car through the intersection and into the new lane
         out_lane = &isection.lanes[crossing->out_dir];
@@ -205,22 +195,10 @@ void *car_cross(void *arg) {
             }
         }
 
-        // Acquire the out lane lock only if it is a different lane,
-        // since we already have a lock acquired on the current
-        // lane.
-        if (out_lane != l) {
-            pthread_mutex_lock(&out_lane->lock);
-        }
-
         crossing->next = out_lane->out_cars;
         out_lane->out_cars = crossing;
         out_lane->passed++;
         printf("%d %d %d\n", crossing->in_dir, crossing->out_dir, crossing->id);
-
-        // Release all locks
-        if (out_lane != l) {
-            pthread_mutex_unlock(&out_lane->lock);
-        }
 
         for (i = 0 ; i < 4 ; i++) {
             if (path[i]!=-1) {
@@ -228,7 +206,6 @@ void *car_cross(void *arg) {
             }
         }
 
-        // Update the current lane
         l->in_buf--;
 
         pthread_cond_signal(&l->producer_cv);
@@ -243,7 +220,7 @@ void *car_cross(void *arg) {
  *
  * Given a car's in_dir and out_dir return a sorted 
  * list of the quadrants the car will pass through.
- * 
+ *
  */
 int *compute_path(enum direction in_dir, enum direction out_dir) {
     return travel_paths[in_dir][out_dir];
