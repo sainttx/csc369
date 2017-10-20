@@ -1,0 +1,9 @@
+Matthew Steglinski
+steglins
+16
+
+Discussion
+In our implementation of the intersection, I don't believe that starvation can occur due to the fact that the buffer is limited via the capacity variable. A definition provided in the week 3 lectures (slide 15) states that if a thread is waiting on the CS, there is a limit on the number of times other threads can enter CS before the current thread is granted access. In our design, the producer and consumer threads (car_arrive, car_cross resp.)  each can only stay in their CS for a limited amount of times. The car_arrive method is hard limited by the maximum capacity of the lane, and the car_cross method is limited by the number of cars currently in the buffer. Due to these two hard limits starvation does not occur.
+
+Design Decision
+A desicision I made for the compute_path method was to hard code a 3D array, travel_paths[4][4][4] which can easily be referenced by the in_dir and out_dir values from the car. I knew that since the direction enum can be converted to integers easily (ie. NORTH=0, WEST=1, etc), that using an array could simplify some code. Rather than using if-else or switch statements, the array simplifies calls to get the path to a simple return statement. For example, to get the path for EAST->NORTH, we just return travel_paths[EAST][NORTH] or travel_paths[3][0]. 
