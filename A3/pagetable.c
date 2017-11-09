@@ -36,11 +36,27 @@ int allocate_frame(pgtbl_entry_t *p) {
 		// Call replacement algorithm's evict function to select victim
 		frame = evict_fcn();
 
+		struct frame victim = coremap[frame];
+
 		// All frames were in use, so victim frame must hold some page
 		// Write victim page to swap, if needed, and update pagetable
-		// IMPLEMENTATION NEEDED
+		if (victim.pte->frame & PG_DIRTY) {
+			// Write to SWAP
+			int off = swap_pageout(frame, victim.pte->swap_off);
 
+			assert(off != INVALID_SWAP); // Verify the swap succeeded and the offset is not invalid
 
+			victim.pte->swap_off = off;
+			victim.pte->frame |= PG_ONSWAP;
+
+			evict_dirty_count++;
+		} else {
+			// Clean page
+			evict_clean_count++;
+		}
+
+		// Mark victim invalid
+		victim.pte->frame &= ~PG_VALID;
 	}
 
 	// Record information for virtual page that will now be stored in frame
@@ -109,7 +125,7 @@ void init_frame(int frame, addr_t vaddr) {
 	// Calculate pointer to start of frame in (simulated) physical memory
 	char *mem_ptr = &physmem[frame*SIMPAGESIZE];
 	// Calculate pointer to location in page where we keep the vaddr
-        addr_t *vaddr_ptr = (addr_t *)(mem_ptr + sizeof(int));
+    addr_t *vaddr_ptr = (addr_t *)(mem_ptr + sizeof(int));
 	
 	memset(mem_ptr, 0, SIMPAGESIZE); // zero-fill the frame
 	*vaddr_ptr = vaddr;             // record the vaddr for error checking
@@ -134,26 +150,58 @@ char *find_physpage(addr_t vaddr, char type) {
 	pgtbl_entry_t *p=NULL; // pointer to the full page table entry for vaddr
 	unsigned idx = PGDIR_INDEX(vaddr); // get index into page directory
 
-	// IMPLEMENTATION NEEDED
-	// Use top-level page directory to get pointer to 2nd-level page table
-	(void)idx; // To keep compiler happy - remove when you have a real use.
+	// Check if the pde at index has been initialized 
+	// (initially set to 0 in init_pagetable)
+	if (pgdir[idx].pde == 0) { // TODO: Maybe can use valid bit
+		pgdir[idx] = init_second_level();
+	}
 
+	// Use top-level page directory to get pointer to 2nd-level page table
+	// Ignore the first bit and get ptr to 2nd-level ptable
+	pgtbl_entry_t *page_table = (pgtbl_entry_t*) (pgdir[idx].pde >> 1); 
 
 	// Use vaddr to get index into 2nd-level page table and initialize 'p'
-
-
+	unsigned p_idx = PGTBL_INDEX(vaddr);
+	p = page_table + p_idx;
 
 	// Check if p is valid or not, on swap or not, and handle appropriately
+	if (p->frame & PG_VALID) {
+		hit_count++; 
+	} else {
+		int frame = allocate_frame(p); 
 
+		// Check if the frame is in swap or not
+		if (p->frame & PG_ONSWAP) {
+			swap_pagein(frame, p->swap_off); // TODO: Check return value
+			frame = frame << PAGE_SHIFT;
+			frame &= ~PG_DIRTY;
+			frame |= PG_ONSWAP;
+		} else {
+			// First use, initialize the frame
+			init_frame(frame, vaddr);
+			frame = frame << PAGE_SHIFT; // TODO: Before or after?
+			frame |= PG_DIRTY;
+		}
 
+		p->frame = frame;
+		coremap[frame].vaddr = vaddr; // TODO: Shifting?
+		miss_count++;
+	}
 
 	// Make sure that p is marked valid and referenced. Also mark it
 	// dirty if the access type indicates that the page will be written to.
+	p->frame |= PG_VALID;
+	p->frame |= PG_REF;
 
-
+	// Check if the access type is data store or data modify, mark frame 
+	// as dirty in this case
+	if (type == 'S' || type == 'M') {
+		p->frame |= PG_DIRTY;
+	}
 
 	// Call replacement algorithm's ref_fcn for this page
 	ref_fcn(p);
+	ref_count++;
 
 	// Return pointer into (simulated) physical memory at start of frame
 	return  &physmem[(p->frame >> PAGE_SHIFT)*SIMPAGESIZE];
