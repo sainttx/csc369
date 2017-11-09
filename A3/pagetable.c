@@ -1,10 +1,10 @@
 #include <assert.h>
-#include <string.h> 
+#include <string.h>
 #include "sim.h"
 #include "pagetable.h"
 
 // The top-level page table (also known as the 'page directory')
-pgdir_entry_t pgdir[PTRS_PER_PGDIR]; 
+pgdir_entry_t pgdir[PTRS_PER_PGDIR];
 
 // Counters for various events.
 // Your code must increment these when the related events occur.
@@ -17,7 +17,7 @@ int evict_dirty_count = 0;
 /*
  * Allocates a frame to be used for the virtual page represented by p.
  * If all frames are in use, calls the replacement algorithm's evict_fcn to
- * select a victim frame.  Writes victim to swap if needed, and updates 
+ * select a victim frame.  Writes victim to swap if needed, and updates
  * pagetable entry for victim to indicate that virtual page is no longer in
  * (simulated) physical memory.
  *
@@ -62,14 +62,13 @@ int allocate_frame(pgtbl_entry_t *p) {
 	// Record information for virtual page that will now be stored in frame
 	coremap[frame].in_use = 1;
 	coremap[frame].pte = p;
-
 	return frame;
 }
 
 /*
  * Initializes the top-level pagetable.
  * This function is called once at the start of the simulation.
- * For the simulation, there is a single "process" whose reference trace is 
+ * For the simulation, there is a single "process" whose reference trace is
  * being simulated, so there is just one top-level page table (page directory).
  * To keep things simple, we use a global array of 'page directory entries'.
  *
@@ -93,7 +92,7 @@ pgdir_entry_t init_second_level() {
 
 	// Allocating aligned memory ensures the low bits in the pointer must
 	// be zero, so we can use them to store our status bits, like PG_VALID
-	if (posix_memalign((void **)&pgtbl, PAGE_SIZE, 
+	if (posix_memalign((void **)&pgtbl, PAGE_SIZE,
 			   PTRS_PER_PGTBL*sizeof(pgtbl_entry_t)) != 0) {
 		perror("Failed to allocate aligned memory for page table");
 		exit(1);
@@ -111,13 +110,13 @@ pgdir_entry_t init_second_level() {
 	return new_entry;
 }
 
-/* 
- * Initializes the content of a (simulated) physical memory frame when it 
+/*
+ * Initializes the content of a (simulated) physical memory frame when it
  * is first allocated for some virtual address.  Just like in a real OS,
  * we fill the frame with zero's to prevent leaking information across
- * pages. 
- * 
- * In our simulation, we also store the the virtual address itself in the 
+ * pages.
+ *
+ * In our simulation, we also store the the virtual address itself in the
  * page frame to help with error checking.
  *
  */
@@ -126,7 +125,7 @@ void init_frame(int frame, addr_t vaddr) {
 	char *mem_ptr = &physmem[frame*SIMPAGESIZE];
 	// Calculate pointer to location in page where we keep the vaddr
     addr_t *vaddr_ptr = (addr_t *)(mem_ptr + sizeof(int));
-	
+
 	memset(mem_ptr, 0, SIMPAGESIZE); // zero-fill the frame
 	*vaddr_ptr = vaddr;             // record the vaddr for error checking
 
@@ -136,9 +135,9 @@ void init_frame(int frame, addr_t vaddr) {
 /*
  * Locate the physical frame number for the given vaddr using the page table.
  *
- * If the entry is invalid and not on swap, then this is the first reference 
- * to the page and a (simulated) physical frame should be allocated and 
- * initialized (using init_frame).  
+ * If the entry is invalid and not on swap, then this is the first reference
+ * to the page and a (simulated) physical frame should be allocated and
+ * initialized (using init_frame).
  *
  * If the entry is invalid and on swap, then a (simulated) physical frame
  * should be allocated and filled by reading the page data from swap.
@@ -150,7 +149,7 @@ char *find_physpage(addr_t vaddr, char type) {
 	pgtbl_entry_t *p=NULL; // pointer to the full page table entry for vaddr
 	unsigned idx = PGDIR_INDEX(vaddr); // get index into page directory
 
-	// Check if the pde at index has been initialized 
+	// Check if the pde at index has been initialized
 	// (initially set to 0 in init_pagetable)
 	if (pgdir[idx].pde == 0) { // TODO: Maybe can use valid bit
 		pgdir[idx] = init_second_level();
@@ -158,7 +157,7 @@ char *find_physpage(addr_t vaddr, char type) {
 
 	// Use top-level page directory to get pointer to 2nd-level page table
 	// Ignore the first bit and get ptr to 2nd-level ptable
-	pgtbl_entry_t *page_table = (pgtbl_entry_t*) (pgdir[idx].pde >> 1); 
+	pgtbl_entry_t *page_table = (pgtbl_entry_t*) (pgdir[idx].pde & PAGE_MASK);
 
 	// Use vaddr to get index into 2nd-level page table and initialize 'p'
 	unsigned p_idx = PGTBL_INDEX(vaddr);
@@ -166,24 +165,23 @@ char *find_physpage(addr_t vaddr, char type) {
 
 	// Check if p is valid or not, on swap or not, and handle appropriately
 	if (p->frame & PG_VALID) {
-		hit_count++; 
+		hit_count++;
 	} else {
-		int frame = allocate_frame(p); 
+		int frame = allocate_frame(p);
 
 		// Check if the frame is in swap or not
 		if (p->frame & PG_ONSWAP) {
 			swap_pagein(frame, p->swap_off); // TODO: Check return value
-			frame = frame << PAGE_SHIFT;
-			frame &= ~PG_DIRTY;
-			frame |= PG_ONSWAP;
+			p->frame = frame << PAGE_SHIFT;
+			p->frame &= ~PG_DIRTY;
+			p->frame |= PG_ONSWAP;
 		} else {
 			// First use, initialize the frame
 			init_frame(frame, vaddr);
-			frame = frame << PAGE_SHIFT; // TODO: Before or after?
-			frame |= PG_DIRTY;
+			p->frame = frame << PAGE_SHIFT; // TODO: Before or after?
+			p->frame |= PG_DIRTY;
 		}
 
-		p->frame = frame;
 		coremap[frame].vaddr = vaddr; // TODO: Shifting?
 		miss_count++;
 	}
@@ -193,7 +191,7 @@ char *find_physpage(addr_t vaddr, char type) {
 	p->frame |= PG_VALID;
 	p->frame |= PG_REF;
 
-	// Check if the access type is data store or data modify, mark frame 
+	// Check if the access type is data store or data modify, mark frame
 	// as dirty in this case
 	if (type == 'S' || type == 'M') {
 		p->frame |= PG_DIRTY;
@@ -213,7 +211,7 @@ void print_pagetbl(pgtbl_entry_t *pgtbl) {
 	first_invalid = last_invalid = -1;
 
 	for (i=0; i < PTRS_PER_PGTBL; i++) {
-		if (!(pgtbl[i].frame & PG_VALID) && 
+		if (!(pgtbl[i].frame & PG_VALID) &&
 		    !(pgtbl[i].frame & PG_ONSWAP)) {
 			if (first_invalid == -1) {
 				first_invalid = i;
@@ -235,7 +233,7 @@ void print_pagetbl(pgtbl_entry_t *pgtbl) {
 			} else {
 				assert(pgtbl[i].frame & PG_ONSWAP);
 				printf("ONSWAP, at offset %lu\n",pgtbl[i].swap_off);
-			}			
+			}
 		}
 	}
 	if (first_invalid != -1) {
@@ -259,7 +257,7 @@ void print_pagedirectory() {
 			last_invalid = i;
 		} else {
 			if (first_invalid != -1) {
-				printf("[%d]: INVALID\n  to\n[%d]: INVALID\n", 
+				printf("[%d]: INVALID\n  to\n[%d]: INVALID\n",
 				       first_invalid, last_invalid);
 				first_invalid = last_invalid = -1;
 			}
