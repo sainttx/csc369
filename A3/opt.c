@@ -10,7 +10,7 @@ extern int debug;
 
 extern struct frame *coremap;
 
-// Linked list structure to track the order in which 
+// Linked list structure to track the order in which
 // virtual addresses are called
 typedef struct node {
 	addr_t vaddr;
@@ -19,7 +19,22 @@ typedef struct node {
 
 node_t *next_trace; // The next trace that will be referenced
 
-/* Page to evict is chosen using the optimal (aka MIN) algorithm. 
+int calculate_frame_distance(struct frame f) {
+	int distance = 0;
+	node_t *curr = next_trace;
+
+	while (curr) {
+		if (curr->vaddr == f.vaddr) {
+			return distance;
+		}
+		distance++;
+		curr = curr->next;
+	}
+
+	return -1;
+}
+
+/* Page to evict is chosen using the optimal (aka MIN) algorithm.
  * Returns the page frame number (which is also the index in the coremap)
  * for the page that is to be evicted.
  */
@@ -29,28 +44,18 @@ int opt_evict() {
 	int max = -1;
 
 	for (i = 0 ; i < memsize ; i++) {
-		if (coremap[i].distance > max) {
+		int distance = calculate_frame_distance(coremap[i]);
+
+		// If the frame will never appear again, just return it
+		if (distance == -1) {
+			return i;
+		} else if (distance > max) {
 			frame = i;
-			max = coremap[i].distance;
+			max = distance;
 		}
 	}
 
 	return frame;
-}
-
-void calculate_frame_distance(struct frame f) {
-	f.distance = -1; // Initial setting of -1 in case it never appears
-	int distance = 0;
-	node_t *curr = NULL;
-
-	while (curr) {
-		if (curr->vaddr == f.vaddr) {
-			f.distance = distance;
-			return;
-		}
-		distance++;
-		curr = curr->next;
-	}
 }
 
 /* This function is called on each access to a page to update any information
@@ -58,8 +63,10 @@ void calculate_frame_distance(struct frame f) {
  * Input: The page table entry for the page that is being accessed.
  */
 void opt_ref(pgtbl_entry_t *p) {
-	calculate_frame_distance(coremap[p->frame]);
+	node_t *curr_head = next_trace;
 	next_trace = next_trace->next;
+	free(curr_head);
+	calculate_frame_distance(coremap[p->frame >> PAGE_SHIFT]);
 }
 
 /* Initializes any data structures needed for this
@@ -70,7 +77,7 @@ void opt_init() {
 	addr_t vaddr = 0;
 	char type;
 	FILE* tfp;
-	
+
 	if((tfp = fopen(tracefile, "r")) == NULL) {
 		perror("Error opening tracefile:");
 		exit(1);
@@ -84,19 +91,18 @@ void opt_init() {
 
 			node_t *trace = (node_t*) malloc(sizeof(node_t));
 			trace->vaddr = vaddr;
+			trace->next = NULL;
 
 			// If it's the first trace read, it's now the head of LL
 			if (!next_trace) {
 				next_trace = trace;
 			} else {
-				prev->next = next_trace;
+				prev->next = trace;
 			}
 
 			prev = trace;
 		} else {
 			continue;
 		}
-
 	}
 }
-
