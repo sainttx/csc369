@@ -66,7 +66,6 @@ struct frame {
 	pgtbl_entry_t *pte;// Pointer back to pagetable entry (pte) for page
 	                   // stored in this frame
 	addr_t vaddr;
-	int distance;
 };
 
 /* The coremap holds information about physical memory.
