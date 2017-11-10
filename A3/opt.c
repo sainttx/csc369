@@ -19,6 +19,12 @@ typedef struct node {
 
 node_t *next_trace; // The next trace that will be referenced
 
+/*
+ * Returns the distance, or number of frame references, until the
+ * frame will be referenced.
+ *
+ * Returns -1 if the frame will never be referenced again.
+ */
 int calculate_frame_distance(struct frame f) {
 	int distance = 0;
 	node_t *curr = next_trace;
