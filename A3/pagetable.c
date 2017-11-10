@@ -171,18 +171,18 @@ char *find_physpage(addr_t vaddr, char type) {
 
 		// Check if the frame is in swap or not
 		if (p->frame & PG_ONSWAP) {
-			swap_pagein(frame, p->swap_off); // TODO: Check return value
+			assert(swap_pagein(frame, p->swap_off) == 0);
 			p->frame = frame << PAGE_SHIFT;
 			p->frame &= ~PG_DIRTY;
 			p->frame |= PG_ONSWAP;
 		} else {
 			// First use, initialize the frame
 			init_frame(frame, vaddr);
-			p->frame = frame << PAGE_SHIFT; // TODO: Before or after?
+			p->frame = frame << PAGE_SHIFT; 
 			p->frame |= PG_DIRTY;
 		}
 
-		coremap[frame].vaddr = vaddr; // TODO: Shifting?
+		coremap[frame].vaddr = vaddr; 
 		miss_count++;
 	}
 
