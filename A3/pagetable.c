@@ -47,7 +47,8 @@ int allocate_frame(pgtbl_entry_t *p) {
 			assert(off != INVALID_SWAP); // Verify the swap succeeded and the offset is not invalid
 
 			victim.pte->swap_off = off;
-			victim.pte->frame |= PG_ONSWAP;
+			victim.pte->frame |= PG_ONSWAP; 
+			victim.pte->frame &= ~PG_DIRTY;
 
 			evict_dirty_count++;
 		} else {
@@ -55,7 +56,7 @@ int allocate_frame(pgtbl_entry_t *p) {
 			evict_clean_count++;
 		}
 
-		// Mark victim invalid
+		// Mark victim invalid, on swap, not dirty 
 		victim.pte->frame &= ~PG_VALID;
 	}
 
