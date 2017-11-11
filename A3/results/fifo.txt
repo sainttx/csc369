@@ -1,0 +1,114 @@
+simpleloop (./sim -f tr-simpleloop-10304.ref -m 200 -s 10304 -a fifo)
+-------------
+memory: 50
+Hit count: 7320
+Miss count: 2984
+Clean evictions: 218
+Dirty evictions: 2716
+Total references : 10304
+Hit rate: 71.0404
+Miss rate: 28.9596
+
+memory: 100
+Hit count: 7546
+Miss count: 2758
+Clean evictions: 45
+Dirty evictions: 2613
+Total references : 10304
+Hit rate: 73.2337
+Miss rate: 26.7663
+
+memory: 150
+Hit count: 7586
+Miss count: 2718
+Clean evictions: 16
+Dirty evictions: 2552
+Total references : 10304
+Hit rate: 73.6219
+Miss rate: 26.3781
+
+memory: 200
+Hit count: 7594
+Miss count: 2710
+Clean evictions: 12
+Dirty evictions: 2498
+Total references : 10304
+Hit rate: 73.6995
+Miss rate: 26.3005
+
+====================
+matmul (./sim -f tr-matmul-6992.ref -m 50 -s 6992 -a fifo)
+--------------------
+memory: 50
+Hit count: 6625
+Miss count: 367
+Clean evictions: 147
+Dirty evictions: 170
+Total references : 6992
+Hit rate: 94.7511
+Miss rate: 5.2489
+
+memory: 100
+Hit count: 6816
+Miss count: 176
+Clean evictions: 0
+Dirty evictions: 76
+Total references : 6992
+Hit rate: 97.4828
+Miss rate: 2.5172
+
+memory: 150
+Hit count: 6846
+Miss count: 146
+Clean evictions: 0
+Dirty evictions: 0
+Total references : 6992
+Hit rate: 97.9119
+Miss rate: 2.0881
+
+memory: 200
+Hit count: 6846
+Miss count: 146
+Clean evictions: 0
+Dirty evictions: 0
+Total references : 6992
+Hit rate: 97.9119
+Miss rate: 2.0881
+
+=======================
+blocked (./sim -f tr-blocked-7080.ref -m 50 -s 7080 -a fifo)
+memory: 50
+Hit count: 6679
+Miss count: 401
+Clean evictions: 171
+Dirty evictions: 180
+Total references : 7080
+Hit rate: 94.3362
+Miss rate: 5.6638
+
+memory: 100
+Hit count: 6900
+Miss count: 180
+Clean evictions: 0
+Dirty evictions: 80
+Total references : 7080
+Hit rate: 97.4576
+Miss rate: 2.5424
+
+memory: 150
+Hit count: 6932
+Miss count: 148
+Clean evictions: 0
+Dirty evictions: 0
+Total references : 7080
+Hit rate: 97.9096
+Miss rate: 2.0904
+
+memory: 200
+Hit count: 6932
+Miss count: 148
+Clean evictions: 0
+Dirty evictions: 0
+Total references : 7080
+Hit rate: 97.9096
+Miss rate: 2.0904
