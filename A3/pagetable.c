@@ -47,7 +47,7 @@ int allocate_frame(pgtbl_entry_t *p) {
 			assert(off != INVALID_SWAP); // Verify the swap succeeded and the offset is not invalid
 
 			victim.pte->swap_off = off;
-			victim.pte->frame |= PG_ONSWAP; 
+			victim.pte->frame |= PG_ONSWAP;
 			victim.pte->frame &= ~PG_DIRTY;
 
 			evict_dirty_count++;
@@ -56,7 +56,7 @@ int allocate_frame(pgtbl_entry_t *p) {
 			evict_clean_count++;
 		}
 
-		// Mark victim invalid, on swap, not dirty 
+		// Mark victim invalid, on swap, not dirty
 		victim.pte->frame &= ~PG_VALID;
 	}
 
@@ -152,7 +152,7 @@ char *find_physpage(addr_t vaddr, char type) {
 
 	// Check if the pde at index has been initialized
 	// (initially set to 0 in init_pagetable)
-	if (pgdir[idx].pde == 0) { // TODO: Maybe can use valid bit
+	if (pgdir[idx].pde == 0) {
 		pgdir[idx] = init_second_level();
 	}
 
@@ -179,11 +179,11 @@ char *find_physpage(addr_t vaddr, char type) {
 		} else {
 			// First use, initialize the frame
 			init_frame(frame, vaddr);
-			p->frame = frame << PAGE_SHIFT; 
+			p->frame = frame << PAGE_SHIFT;
 			p->frame |= PG_DIRTY;
 		}
 
-		coremap[frame].vaddr = vaddr; 
+		coremap[frame].vaddr = vaddr; // Set vaddr for OPT algorithm
 		miss_count++;
 	}
 

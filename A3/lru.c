@@ -11,15 +11,15 @@ extern int debug;
 
 extern struct frame *coremap;
 
-// Definition for linked list structure
-// TODO better description
+// A simple linked list structure that the algorithm uses to
+// keep track of frames that have been recently used.
 typedef struct node {
 	int frame;
 	struct node *next;
 } node_t;
 
-node_t *head;
-node_t *tail;
+node_t *head; // The head contains the most recently used frame
+node_t *tail; // The tail of the list is the least recently used
 
 /*
  * Removes a frame from the list, if present. This method
@@ -30,7 +30,7 @@ void remove_if_present(int frame) {
 	node_t *prev = NULL;
 
 	while (curr) {
-		// Check if the current iterated node is the 
+		// Check if the current iterated node is the
 		// correct frame - remove if so.
 		if (curr->frame == frame) {
 			if (curr == head) {
@@ -70,14 +70,14 @@ int lru_evict() {
 void lru_ref(pgtbl_entry_t *p) {
 	int frame = p->frame >> PAGE_SHIFT;
 
-	// Remove the frame from the list if present
+	// Remove the frame from the list if present (prevent duplicates)
 	remove_if_present(frame);
 
 	// Insert the frame as the head (most recently referenced)
 	node_t *new_head = (node_t*) malloc(sizeof(node_t));
 	new_head->frame = frame;
 	new_head->next = head;
-	head = new_head; 
+	head = new_head;
 
 	// Update the tail if it hasn't been set yet
 	if (!tail) {
@@ -86,8 +86,8 @@ void lru_ref(pgtbl_entry_t *p) {
 }
 
 
-/* Initialize any data structures needed for this 
- * replacement algorithm 
+/* Initialize any data structures needed for this
+ * replacement algorithm
  */
 void lru_init() {
 	head = NULL;

@@ -18,19 +18,19 @@
 
 #ifdef TRACE_64
 // User-level virtual addresses on 64-bit Linux system are 36 bits in our traces
-// and the page size is still 4096 (12 bits). 
+// and the page size is still 4096 (12 bits).
 // We split the remaining 24 bits evenly into top-level (page directory) index
-// and second-level (page table) index, using 12 bits for each. 
-#define PGDIR_SHIFT         24     // Leaves just top 12 bits of vaddr 
+// and second-level (page table) index, using 12 bits for each.
+#define PGDIR_SHIFT         24     // Leaves just top 12 bits of vaddr
 #define PTRS_PER_PGDIR    4096
 #define PTRS_PER_PGTBL    4096
 
 #else // TRACE_32
-// User-level virtual addresses on 32-bit Linux system are 32 bits, and the 
+// User-level virtual addresses on 32-bit Linux system are 32 bits, and the
 // page size is still 4096 (12 bits).
 // We split the remaining 20 bits evenly into top-level (page directory) index
 // and second level (page table) index, using 10 bits for each.
-#define PGDIR_SHIFT       22     // Leaves just top 10 bits of vaddr 
+#define PGDIR_SHIFT       22     // Leaves just top 10 bits of vaddr
 #define PTRS_PER_PGDIR  1024
 #define PTRS_PER_PGTBL  1024
 
@@ -46,15 +46,15 @@ typedef unsigned long addr_t;
 // These defines allow us to take advantage of the compiler's typechecking
 
 // Page directory entry (top-level)
-typedef struct { 
-	uintptr_t pde; 
+typedef struct {
+	uintptr_t pde;
 } pgdir_entry_t;
 
-// Page table entry (2nd-level). 
-typedef struct { 
+// Page table entry (2nd-level).
+typedef struct {
 	unsigned int frame; // if valid bit == 1, physical frame holding vpage
 	off_t swap_off;       // offset in swap file of vpage, if any
-} pgtbl_entry_t;    
+} pgtbl_entry_t;
 
 extern void init_pagetable();
 extern char *find_physpage(addr_t vaddr, char type);
@@ -65,7 +65,7 @@ struct frame {
 	char in_use;       // True if frame is allocated, False if frame is free
 	pgtbl_entry_t *pte;// Pointer back to pagetable entry (pte) for page
 	                   // stored in this frame
-	addr_t vaddr;
+	addr_t vaddr;      // Used in OPT algorithm
 };
 
 /* The coremap holds information about physical memory.

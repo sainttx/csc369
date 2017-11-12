@@ -72,7 +72,6 @@ void opt_ref(pgtbl_entry_t *p) {
 	node_t *curr_head = next_trace;
 	next_trace = next_trace->next;
 	free(curr_head);
-	calculate_frame_distance(coremap[p->frame >> PAGE_SHIFT]);
 }
 
 /* Initializes any data structures needed for this
@@ -91,6 +90,7 @@ void opt_init() {
 
 	node_t *prev;
 
+	// Load in the tracefile using modified same code via sim.c
 	while(fgets(buf, MAXLINE, tfp) != NULL) {
 		if(buf[0] != '=') {
 			sscanf(buf, "%c %lx", &type, &vaddr);

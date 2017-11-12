@@ -51,6 +51,7 @@
 #include "timer.h"
 
 #define PAD 120
+#define DEBUG
 
 struct record {
     double value;
