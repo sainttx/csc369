@@ -112,3 +112,45 @@ Dirty evictions: 0
 Total references : 7080
 Hit rate: 97.9096
 Miss rate: 2.0904
+
+
+===================
+grep (./sim -f traceprogs/tr-grep.ref -m 50 -s 58832 -a lru)
+./runit grep -r *
+-------------------
+memory: 50
+Hit count: 58068
+Miss count: 764
+Clean evictions: 404
+Dirty evictions: 310
+Total references : 58832
+Hit rate: 98.7014
+Miss rate: 1.2986
+
+memory: 100
+Hit count: 58410
+Miss count: 422
+Clean evictions: 78
+Dirty evictions: 244
+Total references : 58832
+Hit rate: 99.2827
+Miss rate: 0.7173
+
+memory: 150
+Hit count: 58512
+Miss count: 320
+Clean evictions: 4
+Dirty evictions: 166
+Total references : 58832
+Hit rate: 99.4561
+Miss rate: 0.5439
+
+memory: 200
+Hit count: 58524
+Miss count: 308
+Clean evictions: 0
+Dirty evictions: 108
+Total references : 58832
+Hit rate: 99.4765
+Miss rate: 0.5235
+

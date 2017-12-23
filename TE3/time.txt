@@ -1,0 +1,49 @@
+Matthews-MacBook-Pro:TE3 matthew$ time ./dolist
+Thread 2 inserted 10000 values
+Thread 3 inserted 10000 values
+Thread 0 inserted 10000 values
+Thread 1 inserted 10000 values
+Thread 4 inserted 10000 values
+Thread 5 inserted 10000 values
+Thread 7 inserted 10000 values
+Thread 6 inserted 10000 values
+Total inserts = 80000
+Final length = 79536
+
+real	0m21.146s
+user	1m16.470s
+sys	0m0.300s
+
+Matthews-MacBook-Pro:TE3 matthew$ time ./dosync
+Thread 1 inserted 10000 values
+Thread 0 inserted 10000 values
+Thread 2 inserted 10000 values
+Thread 3 inserted 10000 values
+Thread 4 inserted 10000 values
+Thread 6 inserted 10000 values
+Thread 5 inserted 10000 values
+Thread 7 inserted 10000 values
+Total inserts = 80000
+Final length = 80000
+
+real	1m23.237s
+user	1m20.921s
+sys	0m1.183s
+
+
+Matthews-MacBook-Pro:TE3 matthew$ time ./handoff
+Thread 0 inserted 10000 values
+Thread 1 inserted 10000 values
+Thread 7 inserted 10000 values
+Thread 3 inserted 10000 values
+Thread 6 inserted 10000 values
+Thread 4 inserted 10000 values
+Thread 5 inserted 10000 values
+Thread 2 inserted 10000 values
+Total inserts = 80000
+Final length = 80000
+
+real	0m44.445s
+user	2m17.875s
+sys	0m9.853s
+

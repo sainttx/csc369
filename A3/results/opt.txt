@@ -75,8 +75,9 @@ Total references : 6992
 Hit rate: 97.9119
 Miss rate: 2.0881
 
-
+==================
 blocked (./sim -f tr-blocked-7080.ref -m 50 -s 7080 -a opt)
+-------------------
 memory: 50
 Hit count: 6903
 Miss count: 177
@@ -112,3 +113,46 @@ Dirty evictions: 0
 Total references : 7080
 Hit rate: 97.9096
 Miss rate: 2.0904
+
+
+
+===================
+grep (./sim -f traceprogs/tr-grep.ref -m 50 -s 58832 -a opt)
+./runit grep -r *
+-------------------
+memory: 50
+Hit count: 58337
+Miss count: 495
+Clean evictions: 166
+Dirty evictions: 279
+Total references : 58832
+Hit rate: 99.1586
+Miss rate: 0.8414
+
+memory: 100
+Hit count: 58532
+Miss count: 300
+Clean evictions: 5
+Dirty evictions: 195
+Total references : 58832
+Hit rate: 99.4901
+Miss rate: 0.5099
+
+memory: 150
+Hit count: 58542
+Miss count: 290
+Clean evictions: 0
+Dirty evictions: 140
+Total references : 58832
+Hit rate: 99.5071
+Miss rate: 0.4929
+
+memory: 200
+Hit count: 58542
+Miss count: 290
+Clean evictions: 0
+Dirty evictions: 90
+Total references : 58832
+Hit rate: 99.5071
+Miss rate: 0.4929
+
